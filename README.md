@@ -1,7 +1,8 @@
 # lloesche/valheim-server Docker image
 ![Valheim](https://raw.githubusercontent.com/lloesche/valheim-server-docker/main/misc/Logo_valheim.png "Valheim")
 
-Valheim Server in a Docker Container (with [ValheimPlus](#valheimplus) support)  
+Valheim Server in a Docker Container (with [BepInEx](#bepinexpack-valheim) and [ValheimPlus](#valheimplus) support)  
+This project is hosted at [https://github.com/lloesche/valheim-server-docker](https://github.com/lloesche/valheim-server-docker)  
 
 [![Docker Badge](https://img.shields.io/docker/pulls/lloesche/valheim-server.svg)](https://hub.docker.com/r/lloesche/valheim-server)
 
@@ -55,6 +56,11 @@ Valheim Server in a Docker Container (with [ValheimPlus](#valheimplus) support)
 * [QNAP NAS Help](#qnap-nas-help)
 	* [Creating container](#creating-container)
 	* [Updating image](#updating-image)
+	* [QNAP ZFS issue](#qnap-zfs-issue)
+* [OpenMediaVault Help](#openmediavault-help)
+  * [Permission denied error](#permission-denied-error)
+* [License](#license)
+* [Legal disclaimer](#legal-disclaimer)
 <!-- vim-markdown-toc -->
 
 
@@ -127,6 +133,8 @@ Without it you will see a message `Warning: failed to set thread priority` in th
 | `BACKUPS_CRON` | `0 * * * *` | [Cron schedule](https://en.wikipedia.org/wiki/Cron#Overview) for world backups (disabled if set to an empty string or if the legacy `BACKUPS_INTERVAL` is set) |
 | `BACKUPS_DIRECTORY` | `/config/backups` | Path to the backups directory |
 | `BACKUPS_MAX_AGE` | `3` | Age in days after which old backups are flushed |
+| `BACKUPS_IF_IDLE` | `true` | Backup even when no players have been connected for a while |
+| `BACKUPS_IDLE_GRACE_PERIOD` | `3600` | Grace period in seconds after the last player has disconnected in which we will still create backups when `BACKUPS_IF_IDLE=false` |
 | `PERMISSIONS_UMASK` | `022` | [Umask](https://en.wikipedia.org/wiki/Umask) to use for backups, config files and directories |
 | `STEAMCMD_ARGS` | `validate` | Additional steamcmd CLI arguments |
 | `VALHEIM_PLUS` | `false` | Whether [ValheimPlus](https://github.com/valheimPlus/ValheimPlus) mod should be loaded (config in `/config/valheimplus`, additional plugins in `/config/valheimplus/plugins`). Can not be used together with `BEPINEX`. |
@@ -209,8 +217,8 @@ The following environment variables can be populated to run commands whenever sp
 | `PRE_SUPERVISOR_HOOK` |  | Command to be executed before supervisord is run. Startup is blocked until this command returns. |
 | `PRE_BOOTSTRAP_HOOK` |  | Command to be executed before bootstrapping is done. Startup is blocked until this command returns. |
 | `POST_BOOTSTRAP_HOOK` |  | Command to be executed after bootstrapping is done and before the server or any services are started. Can be used to install additional packages or perform additional system setup. Startup is blocked until this command returns. |
-| `PRE_BACKUP_HOOK` |  | Command to be executed before a backup is created. The string `@BACKUP_FILE@` will be replaced by the full path of the future backup zip file. Backups are blocked until this command returns. See [Post backup hook](#post-backup-hook) for details. |
-| `POST_BACKUP_HOOK` |  | Command to be executed after a backup is created. The string `@BACKUP_FILE@` will be replaced by the full path of the backup zip file. Backups are blocked until this command returns. See [Post backup hook](#post-backup-hook) for details. |
+| `PRE_BACKUP_HOOK` |  | Command to be executed before a backup is created. The string `@BACKUP_FILE@` will be replaced by the full path of the future backup zip file. Backups are blocked until this command returns. |
+| `POST_BACKUP_HOOK` |  | Command to be executed after a backup is created. The string `@BACKUP_FILE@` will be replaced by the full path of the backup zip file. Backups are blocked until this command returns. See [Copy backups to another location](#copy-backups-to-another-location) for details. |
 | `PRE_UPDATE_CHECK_HOOK` |  | Command to be executed before an update check is performed. Current update is blocked until this command returns. |
 | `POST_UPDATE_CHECK_HOOK` |  | Command to be executed after an update check was performed. Future updates are blocked until this command returns. |
 | `PRE_START_HOOK` |  | Command to be executed before the first server start is performed by the valheim-updater. Current start is blocked until this command returns. |
@@ -417,23 +425,32 @@ However the `worlds/` directory also contains a `.db.old` file for each world wh
 
 See [Copy backups to another location](#copy-backups-to-another-location) for an example of how to copy backups offsite.
 
+If `BACKUPS_IF_IDLE=false` then backups are only created if there has been recent player activity. Once the last player disconnects
+there is a grace period `BACKUPS_IDLE_GRACE_PERIOD` in seconds after which backups are still being created. The reason for this is that Valheim
+dedicated server only saves the world in 20 minute intervals and on shutdown. So to make sure that we have a consistent world file backup of
+the most recent changes we want to wait out one world save. This grace period also needs to be long enough so that our `BACKUPS_CRON` had a chance to run.
+
+
 ## Manual backup
 Sending `SIGHUP` to the `valheim-backup` service or restarting the service will create a backup.
+If `BACKUPS_IF_IDLE=false` sending `SIGHUP` only creates a backup if there has been recent player activity.
+Restarting `valheim-backup` will always create a backup.
+
 The PID of the running service can be found in `/var/run/valheim-backup.pid`
 
 Assuming your container's name is `valheim-server` here's how both would work:
 
-Sending SIGHUP using `supervisorctl` (the most graceful way of making a backup)
+Sending SIGHUP using `supervisorctl`
 ```
 docker exec -it valheim-server supervisorctl signal HUP valheim-backup
 ```
 
-Sending SIGHUP manually (as graceful as before but more "manual")
+Sending SIGHUP manually
 ```
 docker exec -it valheim-server bash -c 'kill -HUP $(< /var/run/valheim-backup.pid)'
 ```
 
-Restarting `valheim-backup` (the more brute force way)
+Restarting `valheim-backup`
 ```
 docker exec -it valheim-server supervisorctl restart valheim-backup
 ```
@@ -778,3 +795,51 @@ In the image name you have to specify the image from the container definition `l
 After the image is downloaded restart the container. As you can see the old image is now unused and the new one is in use by the container. You can now safely delete the old image.
 
 ![Qnap update Step 4](https://raw.githubusercontent.com/lloesche/valheim-server-docker/main/misc/qnap_update_images.png "Qnap update Step 4")
+
+
+## QNAP ZFS issue
+We have had [a report from a QNAP user](https://github.com/lloesche/valheim-server-docker/issues/275) where Steam failed when using ZFS as the backing filesystem with the following error
+```
+valheim-updater [ 0%] !!! Fatal Error: Steamcmd needs 250MB of free disk space to update.
+valheim-updater src/tier0/threadtools.cpp (3553) : Assertion Failed: Illegal termination of worker thread 'Thread(0x0x58a1d8f0/0x0xf7780b'
+```
+
+The only workaround they found was to use a non-ZFS volume.
+
+If you have access to a QNAP NAS running ZFS and can reproduce/debug this issue further, please open a new issue with your findings so we can update this section and provide more information here.
+
+
+# OpenMediaVault Help
+## Permission denied error
+If you are running this container in Portainer on a OpenMediaVault NAS and getting the following error
+```
+valheim-server /usr/local/bin/valheim-server: line 110: /opt/valheim/server/valheim_server.x86_64: Permission denied
+```
+
+the cause is that the container's filesystem is mounted with the `noexec` flag. Meaning no files are allowed to be executed on that filesystem.
+
+See [this page](https://openmediavault.readthedocs.io/en/5.x/various/fs_env_vars.html) for detailed information on how to disable noexec for newly created and existing filesystems.
+
+For existing filesystems edit `/etc/openmediavault/config.xml` and remove the `noexec` option from the filesystem in question. The file should look something like this
+
+![OMV 1](https://raw.githubusercontent.com/lloesche/valheim-server-docker/main/misc/omv1.png "OMV Step 1")
+
+
+# License
+Copyright 2021 [Lukas Lösche](mailto:lukas@opensourcery.de)  
+  
+Licensed under the Apache License, Version 2.0 (the "License");  
+you may not use this file except in compliance with the License.  
+You may obtain a copy of the License at  
+  
+&nbsp;&nbsp;&nbsp;&nbsp;[http://www.apache.org/licenses/LICENSE-2.0](http://www.apache.org/licenses/LICENSE-2.0)  
+  
+Unless required by applicable law or agreed to in writing, software  
+distributed under the License is distributed on an "AS IS" BASIS,  
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  
+See the License for the specific language governing permissions and  
+limitations under the License.
+
+# Legal disclaimer
+This Docker container is not endorsed by, directly affiliated with, maintained, authorized, or sponsored by [Iron Gate Studio](https://irongatestudio.se/).  
+[Valheim](https://www.valheimgame.com/), [Valheim dedicated server](https://steamcommunity.com/app/896660/) and [the Valheim Logo](https://irongatestudio.se/onewebmedia/ValheimPresskit.zip) are © 2021 Iron Gate Studio.
