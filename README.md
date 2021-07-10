@@ -37,6 +37,7 @@ This project is hosted at [https://github.com/lloesche/valheim-server-docker](ht
 	* [Steam Server Browser](#steam-server-browser)
 	* [Steam Server Favorites & LAN Play](#steam-server-favorites--lan-play)
 * [Admin Commands](#admin-commands)
+  * [Enable Admin Console](#enable-admin-console)
 * [Supervisor](#supervisor)
   * [Supervisor API](#supervisor-api)
 * [Status web server](#status-web-server)
@@ -46,7 +47,6 @@ This project is hosted at [https://github.com/lloesche/valheim-server-docker](ht
   * [ValheimPlus](#valheimplus)
     * [Updates](#updates-1)
     * [Configuration](#configuration-1)
-      * [Server data rate](#server-data-rate)
       * [Disable server password](#disable-server-password)
 * [Changing startup CMD in Portainer](#changing-startup-cmd-in-portainer)
 * [Synology Help](#synology-help)
@@ -114,6 +114,7 @@ Without it you will see a message `Warning: failed to set thread priority` in th
 
 # Environment Variables
 **All variable names and values are case-sensitive!**
+
 | Name | Default | Purpose |
 |----------|----------|-------|
 | `SERVER_NAME` | `My Server` | Name that will be shown in the server browser |
@@ -124,6 +125,7 @@ Without it you will see a message `Warning: failed to set thread priority` in th
 | `SERVER_ARGS` |  | Additional Valheim server CLI arguments |
 | `ADMINLIST_IDS` |  | Space separated list of admin SteamIDs. Overrides any existing adminlist.txt entries! |
 | `BANNEDLIST_IDS` |  | Space separated list of banned SteamIDs. Overrides any existing bannedlist.txt entries! |
+| `PERMITTEDLIST_IDS` |  | Space separated list of whitelisted SteamIDs. Overrides any existing permittedlist.txt entries! |
 | `UPDATE_CRON` | `*/15 * * * *` | [Cron schedule](https://en.wikipedia.org/wiki/Cron#Overview) for update checks (disabled if set to an empty string or if the legacy `UPDATE_INTERVAL` is set) |
 | `UPDATE_IF_IDLE` | `true` | Only run update check if no players are connected to the server (`true` or `false`) |
 | `RESTART_CRON` | `0 5 * * *` | [Cron schedule](https://en.wikipedia.org/wiki/Cron#Overview) for server restarts (disabled if set to an empty string) |
@@ -133,6 +135,7 @@ Without it you will see a message `Warning: failed to set thread priority` in th
 | `BACKUPS_CRON` | `0 * * * *` | [Cron schedule](https://en.wikipedia.org/wiki/Cron#Overview) for world backups (disabled if set to an empty string or if the legacy `BACKUPS_INTERVAL` is set) |
 | `BACKUPS_DIRECTORY` | `/config/backups` | Path to the backups directory |
 | `BACKUPS_MAX_AGE` | `3` | Age in days after which old backups are flushed |
+| `BACKUPS_MAX_COUNT` | `0` | Maximum number of backups kept, 0 means infinity |
 | `BACKUPS_IF_IDLE` | `true` | Backup even when no players have been connected for a while |
 | `BACKUPS_IDLE_GRACE_PERIOD` | `3600` | Grace period in seconds after the last player has disconnected in which we will still create backups when `BACKUPS_IF_IDLE=false` |
 | `PERMISSIONS_UMASK` | `022` | [Umask](https://en.wikipedia.org/wiki/Umask) to use for backups, config files and directories |
@@ -142,7 +145,7 @@ Without it you will see a message `Warning: failed to set thread priority` in th
 | `SUPERVISOR_HTTP` | `false` | Turn on supervisor's http server |
 | `SUPERVISOR_HTTP_PORT` | `9001` | Set supervisor's http server port |
 | `SUPERVISOR_HTTP_USER` | `admin` | Supervisor http server username |
-| `SUPERVISOR_HTTP_PASS` |  | Supervisor http server password. http server will not be started if password is not set! |
+| `SUPERVISOR_HTTP_PASS` |  | Supervisor http server password |
 | `STATUS_HTTP` | `false` | Turn on the status http server. Only useful on public servers (`SERVER_PUBLIC=true`). |
 | `STATUS_HTTP_PORT` | `80` | Status http server tcp port |
 | `STATUS_HTTP_CONF` | `/config/httpd.conf` | Path to the [busybox httpd config](https://git.busybox.net/busybox/tree/networking/httpd.c) |
@@ -150,6 +153,8 @@ Without it you will see a message `Warning: failed to set thread priority` in th
 | `SYSLOG_REMOTE_HOST` |  | Remote syslog host or IP to send logs to |
 | `SYSLOG_REMOTE_PORT` | `514` | Remote syslog UDP port to send logs to |
 | `SYSLOG_REMOTE_AND_LOCAL` | `true` | When sending logs to a remote syslog server also log local |
+| `PUID` | `0` | UID to run valheim-server as |
+| `PGID` | `0` | GID to run valheim-server as |
 
 There are a few undocumented environment variables that could break things if configured wrong. They can be found in [`defaults`](defaults).
 
@@ -420,6 +425,8 @@ Warning: do not make the backup directory a subfolder of `/config/worlds/`. Othe
 
 By default 3 days worth of backups will be kept. A different number can be configured using `BACKUPS_MAX_AGE`. The value is in days.
 
+It is possible to configure a maximum number of to-be-kept backup files with `BACKUPS_MAX_COUNT`. When going over this limit, the oldest file(s) will be deleted. The default is `0` which means no limit. Note that `BACKUPS_MAX_AGE` will always be respected: if backups get too old, they will be deleted even if `BACKUPS_MAX_COUNT` was not yet reached (or is `0`).
+
 Beware that backups are performed while the server is running. As such files might be in an open state when the backup runs.
 However the `worlds/` directory also contains a `.db.old` file for each world which should always be closed and in a consistent state.
 
@@ -533,6 +540,11 @@ Administrators can press ***F5*** to open the in-game console and use commands l
 ![Kick a user](https://raw.githubusercontent.com/lloesche/valheim-server-docker/main/misc/admin3.png "Kick a user")
 
 
+## Enable Admin Console
+In recent versions of Valheim the game client has to be started with the `-console` flag for ***F5*** to work.
+![Enable Admin Console](https://raw.githubusercontent.com/lloesche/valheim-server-docker/main/misc/admin_console1.png "Enable Admin Console")
+
+
 # Supervisor
 This container uses a process supervisor aptly named [`supervisor`](http://supervisord.org/).
 Within the container processes can be started and restarted using the command `supervisorctl`. For instance `supervisorctl restart valheim-server` would restart the server.
@@ -632,20 +644,6 @@ This also means your clients always need to run the latest ValheimPlus version o
 
 ### Configuration
 See [Mod config from Environment Variables](#mod-config-from-environment-variables)
-
-#### Server data rate
-A popular change is to increase the server send rate.
-
-To do so enable ValheimPlus (`VALHEIM_PLUS=true`) and configure the following section in `/config/valheimplus/valheim_plus.cfg`
-```
-[Server]
-enabled=true
-enforceMod=false
-dataRate=600
-```
-(Or whatever `dataRate` value you require. The value is in kb/s with a default of 60.)
-
-Alternatively start with `-e VPCFG_Server_enabled=true -e VPCFG_Server_enforceMod=false -e VPCFG_Server_dataRate=600`.
 
 #### Disable server password
 Another popular mod for LAN play that does not require the clients to run ValheimPlus is to turn off password authentication.

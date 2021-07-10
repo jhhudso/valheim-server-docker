@@ -7,12 +7,33 @@
 
 
 main() {
+    apply_permissions
     configure_timezone
     setup_syslog
     setup_supervisor_http_server
     setup_status_http_server
     pre_supervisor_hook
     exec /usr/local/bin/supervisord -c /usr/local/etc/supervisord.conf
+}
+
+
+# Apply user id and group id
+apply_permissions() {
+    info "Setting uid:gid of valheim to $PUID:$PGID"
+    groupmod -g "${PGID}" -o valheim
+    #usermod -u "${PUID}" -o -g valheim valheim
+    sed -i -E "s/^(valheim:x):[0-9]+:[0-9]+:(.*)/\\1:$PUID:$PGID:\\2/" /etc/passwd
+
+    touch "$SERVER_STATUS_FILE"
+
+    chown -R valheim:valheim \
+        /config \
+        /opt/valheim \
+        /opt/steamcmd \
+        /home/valheim \
+        /var/run/valheim \
+        "$SERVER_STATUS_FILE"
+    chgrp valheim /usr/local/etc/supervisord.conf
 }
 
 
@@ -65,17 +86,17 @@ EOF
 setup_supervisor_http_server() {
     rm -f "$supervisor_http_server_conf"
     if [ "$SUPERVISOR_HTTP" = true ]; then
-        if [ -n "$SUPERVISOR_HTTP_PASS" ]; then
-            info "Supervisor http server activated"
-            cat > "$supervisor_http_server_conf" <<EOF
+        info "Supervisor http server activated"
+        cat > "$supervisor_http_server_conf" <<EOF
 [inet_http_server]
 port = :$SUPERVISOR_HTTP_PORT
+EOF
+        chmod 600 "$supervisor_http_server_conf"
+        if [ -n "$SUPERVISOR_HTTP_USER" ] && [ -n "$SUPERVISOR_HTTP_PASS" ]; then
+            cat >> "$supervisor_http_server_conf" <<EOF
 username = $SUPERVISOR_HTTP_USER
 password = $SUPERVISOR_HTTP_PASS
 EOF
-            chmod 600 "$supervisor_http_server_conf"
-        else
-            error "SUPERVISOR_HTTP enabled but SUPERVISOR_HTTP_PASS is empty - ignoring request to run supervisor http server"
         fi
     fi
 }
