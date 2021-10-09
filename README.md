@@ -4,8 +4,6 @@
 Valheim Server in a Docker Container (with [BepInEx](#bepinexpack-valheim) and [ValheimPlus](#valheimplus) support)  
 This project is hosted at [https://github.com/lloesche/valheim-server-docker](https://github.com/lloesche/valheim-server-docker)  
 
-[![Docker Badge](https://img.shields.io/docker/pulls/lloesche/valheim-server.svg)](https://hub.docker.com/r/lloesche/valheim-server)
-
 
 # Table of contents
 <!-- vim-markdown-toc GFM -->
@@ -66,7 +64,7 @@ This project is hosted at [https://github.com/lloesche/valheim-server-docker](ht
 
 # Basic Docker Usage
 
-The name of the Docker image is `lloesche/valheim-server`.
+The name of the Docker image is `ghcr.io/lloesche/valheim-server`.
 
 Volume mount the server config directory to `/config` within the Docker container.
 
@@ -90,7 +88,7 @@ $ docker run -d \
     -e SERVER_NAME="My Server" \
     -e WORLD_NAME="Neotopia" \
     -e SERVER_PASS="secret" \
-    lloesche/valheim-server
+    ghcr.io/lloesche/valheim-server
 ```
 
 Warning: `SERVER_PASS` must be at least 5 characters long. Otherwise `valheim_server.x86_64` will refuse to start!
@@ -138,6 +136,7 @@ Without it you will see a message `Warning: failed to set thread priority` in th
 | `BACKUPS_MAX_COUNT` | `0` | Maximum number of backups kept, 0 means infinity |
 | `BACKUPS_IF_IDLE` | `true` | Backup even when no players have been connected for a while |
 | `BACKUPS_IDLE_GRACE_PERIOD` | `3600` | Grace period in seconds after the last player has disconnected in which we will still create backups when `BACKUPS_IF_IDLE=false` |
+| `BACKUPS_ZIP` | `true` | Compress Backups with `zip`. If set to `false` Backups will be stored uncompressed. |
 | `PERMISSIONS_UMASK` | `022` | [Umask](https://en.wikipedia.org/wiki/Umask) to use for backups, config files and directories |
 | `STEAMCMD_ARGS` | `validate` | Additional steamcmd CLI arguments |
 | `VALHEIM_PLUS` | `false` | Whether [ValheimPlus](https://github.com/valheimPlus/ValheimPlus) mod should be loaded (config in `/config/valheimplus`, additional plugins in `/config/valheimplus/plugins`). Can not be used together with `BEPINEX`. |
@@ -437,6 +436,7 @@ there is a grace period `BACKUPS_IDLE_GRACE_PERIOD` in seconds after which backu
 dedicated server only saves the world in 20 minute intervals and on shutdown. So to make sure that we have a consistent world file backup of
 the most recent changes we want to wait out one world save. This grace period also needs to be long enough so that our `BACKUPS_CRON` had a chance to run.
 
+`BACKUPS_ZIP=false` can be used to store backups uncompressed in the backup directory. Please note that this will increase the filesize of the backups, due to no compression.
 
 ## Manual backup
 Sending `SIGHUP` to the `valheim-backup` service or restarting the service will create a backup.
@@ -801,8 +801,24 @@ We have had [a report from a QNAP user](https://github.com/lloesche/valheim-serv
 valheim-updater [ 0%] !!! Fatal Error: Steamcmd needs 250MB of free disk space to update.
 valheim-updater src/tier0/threadtools.cpp (3553) : Assertion Failed: Illegal termination of worker thread 'Thread(0x0x58a1d8f0/0x0xf7780b'
 ```
+This appears to be due to a bad Steam/ZFS interaction akin to [this Steam bug](https://github.com/ValveSoftware/steam-for-linux/issues/4982) where very large ZFS volumes get interpreted as very small due to bad overflow handling. There are two workarounds available. Use a non-ZFS volume, or set a quota on the volume, e.g.:
 
-The only workaround they found was to use a non-ZFS volume.
+1. Connect to the QNAP SSH console.
+2. Get the ZFS volume ID from within the container
+```
+df /opt/valheim | tail -n 1 | awk '{ print $1 }'
+```
+3. Set the quota to 2TB or less from the QNAP SSH console:
+```
+zfs set quota=1TB "volume_id_here"
+```
+
+You could also try this one-liner from the SSH console:
+```
+CONTAINER="your_valheim_container name/id" \
+  docker exec -t "$CONTAINER" df /opt/valheim | tail -n 1 | awk '{ print $1 }' | \
+  xargs -I zfs_id sudo zfs set quota=1TB zfs_id
+```
 
 If you have access to a QNAP NAS running ZFS and can reproduce/debug this issue further, please open a new issue with your findings so we can update this section and provide more information here.
 
