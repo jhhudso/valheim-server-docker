@@ -2,8 +2,8 @@ FROM debian:buster-slim as build-env
 ENV DEBIAN_FRONTEND=noninteractive
 ARG TESTS
 ARG SOURCE_COMMIT
-ARG BUSYBOX_VERSION=1.33.1
-ARG SUPERVISOR_VERSION=4.2.2
+ARG BUSYBOX_VERSION=1.34.1
+ARG SUPERVISOR_VERSION=4.2.4
 
 RUN apt-get update
 RUN apt-get -y install apt-utils
@@ -97,7 +97,7 @@ RUN groupadd -g "${PGID:-0}" -o valheim \
         libsdl2-2.0-0:i386 \
         cron \
         curl \
-        tcpdump \
+        iproute2 \
         libcurl4 \
         libcurl4:i386 \
         ca-certificates \
@@ -110,6 +110,7 @@ RUN groupadd -g "${PGID:-0}" -o valheim \
         jq \
         python3-minimal \
         python3-pkg-resources \
+        python3-setuptools \
     && echo 'LANG="en_US.UTF-8"' > /etc/default/locale \
     && echo "en_US.UTF-8 UTF-8" >> /etc/locale.gen \
     && rm -f /bin/sh \
